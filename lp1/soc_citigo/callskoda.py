@@ -185,13 +185,9 @@ async def main():
         if await connection.doLogin():
             if debug>0: print('Login success!')
             if debug>0: print(datetime.now())
-            
-            if( lib_version >= '1.1.3'):
             	if debug>0: print('Fetching vehicles associated with account.')
             	await connection.get_vehicles()
             	timername='departuretimer'
-            else:
-            	timername='timers'
 
             
             
