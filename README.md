@@ -119,4 +119,4 @@ VW/SKoda/Seat ändern relativ häufig an ihrem Webauftritt und der jeweiligen PK
 Aktuell passiert es fast monatlich das am Skodaconnect Module nachgearbeitet werden muss.
 In diesem Fall vom bitte ein Update beim orginal Autor herunterladen und das skodaconnect Verzeichnis
 entsprechend aktualisieren. Im original Repositiory ist auch ein Beispiel-Script mit dem man
-zuerst mal testen kann ob die Version für den Citigo überhaupt funktioiert.
+zuerst mal testen kann ob die Version für den Citigo überhaupt funktioniert.
