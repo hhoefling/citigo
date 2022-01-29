@@ -113,3 +113,10 @@ Das Script sollte sich nicht selbst überholen.
 Es kann auch zu temporären Störungen auf den Servern kommen
 Immer erst mal mit dem Handy testen ob der Skoda Server überhaupt "online" ist.
 
+**Weitere Infos**
+
+VW/SKoda/Seat ändern relativ häuftg an ihrem Webauftritt und der jeweiligen PKW App herum.
+Aktuelle passiert es fast monatlich das am Skodaconnect module nachgearbeitet werden muss.
+In diesem Fall vom orginal Autor bitte eine Update herunterladen und das skodaconnect verzeichniss
+entsprechend aktualisieren. Im Original Repositiory ist auch ein Beispiel-Script mit dem man
+zuerst mal testen kann ob die Version für den Citigo funktioiert.
