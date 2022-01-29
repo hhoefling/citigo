@@ -110,13 +110,13 @@ Dann dauert es längstes 10 Minuten bis die openWB den aktuellen Soc darstellt.
 Auch bitte nicht auf dem "reload" rumdaddeln.
 Das Script sollte sich nicht selbst überholen.
 
-Es kann auch zu temporären Störungen auf den Servern kommen
+Es kann auch zu temporären Störungen auf den Servern der kommen.
 Immer erst mal mit dem Handy testen ob der Skoda Server überhaupt "online" ist.
 
 **Weitere Infos**
 
-VW/SKoda/Seat ändern relativ häuftg an ihrem Webauftritt und der jeweiligen PKW App herum.
-Aktuelle passiert es fast monatlich das am Skodaconnect module nachgearbeitet werden muss.
-In diesem Fall vom orginal Autor bitte eine Update herunterladen und das skodaconnect verzeichniss
-entsprechend aktualisieren. Im Original Repositiory ist auch ein Beispiel-Script mit dem man
-zuerst mal testen kann ob die Version für den Citigo funktioiert.
+VW/SKoda/Seat ändern relativ häufig an ihrem Webauftritt und der jeweiligen PKW App herum.
+Aktuell passiert es fast monatlich das am Skodaconnect Module nachgearbeitet werden muss.
+In diesem Fall vom bitte ein Update beim orginal Autor herunterladen und das skodaconnect Verzeichnis
+entsprechend aktualisieren. Im original Repositiory ist auch ein Beispiel-Script mit dem man
+zuerst mal testen kann ob die Version für den Citigo überhaupt funktioiert.
