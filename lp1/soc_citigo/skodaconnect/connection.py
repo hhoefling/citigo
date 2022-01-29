@@ -10,6 +10,8 @@ import asyncio
 import hashlib
 import jwt
 import hmac
+import string
+import secrets
 
 from sys import version_info, argv
 from datetime import timedelta, datetime, timezone
@@ -53,7 +55,8 @@ from .const import (
     XAPPNAME,
     USER_AGENT,
     APP_URI,
-    MODELVIEW,
+    MODELVIEWL,
+    MODELVIEWS,
     MODELAPPID,
     MODELAPIKEY,
     MODELHOST,
@@ -96,19 +99,17 @@ class Connection:
 
     def _clear_cookies(self):
         self._session._cookie_jar._cookies.clear()
-        self._session_cookies = ""
+        self._session_cookies = ''
 
     def _getNonce(self):
-        ts = "%d" % (time.time())
+        chars = string.ascii_letters + string.digits
+        text = ''.join(secrets.choice(chars) for i in range(10))
         sha256 = hashlib.sha256()
-        sha256.update(ts.encode())
+        sha256.update(text.encode())
         return (b64encode(sha256.digest()).decode('utf-8')[:-1])
 
     def _getState(self):
-        ts = "%d" % (time.time()-1000)
-        sha256 = hashlib.sha256()
-        sha256.update(ts.encode())
-        return (b64encode(sha256.digest()).decode('utf-8')[:-1])
+        return self._getNonce()
 
   # API login/logout/authorization
     async def doLogin(self):
@@ -145,7 +146,6 @@ class Connection:
 
         # Login/Authorization starts here
         try:
-            # Get OpenID config:
             self._session_headers = HEADERS_SESSION.copy()
             self._session_auth_headers = HEADERS_AUTH.copy()
 
@@ -160,7 +160,6 @@ class Connection:
             authissuer = response_data['issuer']
 
             # Get authorization page (login page)
-            # https://identity.vwgroup.io/oidc/v1/authorize?nonce={NONCE}&state={STATE}&response_type={TOKEN_TYPES}&scope={SCOPE}&redirect_uri={APP_URI}&client_id={CLIENT_ID}
             if self._session_fulldebug:
                 _LOGGER.debug(f'Get authorization page: "{authorizationEndpoint}"')
             try:
@@ -222,7 +221,7 @@ class Connection:
                             timeout = parse_qs(urlparse(location).query).get('enableNextButtonAfterSeconds', '')[0]
                             raise SkodaAccountLockedException(f'Account is locked for another {timeout} seconds')
                         elif error == 'login.errors.password_invalid':
-                            raise SkodaAuthenticationException('Invalid credentials')
+                            raise SkodaAuthenticationException('Invalid password')
                         else:
                             _LOGGER.warning(f'Login failed: {error}')
                         raise SkodaLoginFailedException(error)
@@ -236,7 +235,7 @@ class Connection:
                         allow_redirects=False
                     )
                     if response.headers.get('Location', False) is False:
-                        _LOGGER.debug(f'Unexpected response: {await req.text()}')
+                        _LOGGER.debug(f'Unexpected response: {await response.text()}')
                         raise SkodaAuthenticationException('User appears unauthorized')
                     location = response.headers.get('Location', None)
                     # Set a max limit on requests to prevent forever loop
@@ -325,18 +324,21 @@ class Connection:
         try:
             response_data = await html.text()
             responseSoup = BeautifulSoup(response_data, 'html.parser')
-            mailform = dict()
+            form_data = dict()
             if responseSoup is None:
                 raise SkodaLoginFailedException('Login failed, server did not return a login form')
             for t in responseSoup.find('form', id='emailPasswordForm').find_all('input', type='hidden'):
                 if self._session_fulldebug:
                     _LOGGER.debug(f'Extracted form attribute: {t["name"], t["value"]}')
-                mailform[t['name']] = t['value']
+                #mailform[t['name']] = t['value']
+                form_data[t['name']] = t['value']
             #mailform = dict([(t['name'],t['value']) for t in responseSoup.find('form', id='emailPasswordForm').find_all('input', type='hidden')])
-            mailform['email'] = self._session_auth_username
+            form_data['email'] = self._session_auth_username
             pe_url = authissuer+responseSoup.find('form', id='emailPasswordForm').get('action')
+            login_base = pe_url.split('login')
         except Exception as e:
             _LOGGER.error('Failed to extract user login form.')
+            _LOGGER.debug(f'Form: {form_data}')
             raise
 
         # POST email
@@ -347,7 +349,7 @@ class Connection:
         req = await self._session.post(
             url = pe_url,
             headers = self._session_auth_headers,
-            data = mailform
+            data = form_data
         )
         if req.status != 200:
             raise SkodaException('Authorization request failed')
@@ -355,16 +357,39 @@ class Connection:
             response_data = await req.text()
             responseSoup = BeautifulSoup(response_data, 'html.parser')
             pwform = {}
-            for t in responseSoup.find('form', id='credentialsForm').find_all('input', type='hidden'):
-                if self._session_fulldebug:
-                    _LOGGER.debug(f'Extracted form attribute: {t["name"], t["value"]}')
-                pwform[t['name']] = t['value']
-            #pwform = dict([(t['name'],t['value']) for t in responseSoup.find('form', id='credentialsForm').find_all('input', type='hidden')])
-            pwform['password'] = self._session_auth_password
-            pw_url = authissuer+responseSoup.find('form', id='credentialsForm').get('action')
+            credentials_form = responseSoup.find('form', id='credentialsForm')
+            all_scripts = responseSoup.find_all('script', {'src': False})
+            if credentials_form is not None:
+                _LOGGER.debug('Found HTML credentials form, extracting attributes')
+                for t in credentials_form.find_all('input', type='hidden'):
+                    if self._session_fulldebug:
+                        _LOGGER.debug(f'Extracted form attribute: {t["name"], t["value"]}')
+                    pwform[t['name']] = t['value']
+                    form_data = pwform
+                    post_action = responseSoup.find('form', id='credentialsForm').get('action')
+            elif all_scripts is not None:
+                _LOGGER.debug('Found dynamic credentials form, extracting attributes')
+                pattern = re.compile("templateModel: (.*?),\n")
+                for sc in all_scripts:
+                    if(pattern.search(sc.string)):
+                        import json
+                        data = pattern.search(sc.string)
+                        jsondata = json.loads(data.groups()[0])
+                        _LOGGER.debug(f'JSON: {jsondata}')
+                        if not jsondata.get('hmac', False):
+                            raise SkodaLoginFailedException('Failed to extract login hmac attribute')
+                        if not jsondata.get('postAction', False):
+                            raise SkodaLoginFailedException('Failed to extract login post action attribute')
+                        if jsondata.get('error', None) is not None:
+                            raise SkodaLoginFailedException(f'Login failed with error: {jsondata.get("error", None)}')
+                        form_data['hmac'] = jsondata.get('hmac', '')
+                        post_action = jsondata.get('postAction')
+            else:
+                raise SkodaLoginFailedException('Failed to extract login form data')
+            form_data['password'] = self._session_auth_password
+        except (SkodaLoginFailedException) as e:
+            raise
         except Exception as e:
-            if responseSoup.find('form', id='credentialsForm') is None:
-                raise SkodaAuthenticationException("Invalid username")
             raise SkodaAuthenticationException("Invalid username or service unavailable")
 
         # POST password
@@ -373,13 +398,15 @@ class Connection:
         self._session_auth_headers['Origin'] = authissuer
         _LOGGER.debug(f"Finalizing login")
         if self._session_fulldebug:
-            _LOGGER.debug(f'Using login action url: "{pw_url}"')
+            _LOGGER.debug(f'Using login action url: "{login_base[0]}{post_action}"')
+            _LOGGER.debug(f'POSTing following form data: {form_data}')
         req = await self._session.post(
-            url=pw_url,
+            url=login_base[0]+post_action,
             headers=self._session_auth_headers,
-            data = pwform,
+            data = form_data,
             allow_redirects=False
         )
+        _LOGGER.debug(f'Got response: {req}')
         return req.headers.get('Location', None)
 
     async def _getAPITokens(self):
@@ -397,7 +424,7 @@ class Connection:
             # If connect token is not valid, try to refresh it
             if not await self.validate_token(token):
                 # Try to refresh "Connect" token
-                if not await refresh_token('connect'):
+                if not await self.refresh_token('connect'):
                     raise SkodaTokenExpiredException('Token is invalid for client "connect"')
 
             # https://mbboauth-1d.prd.ece.vwg-connect.com/mbbcoauth/mobile/oauth2/v1/token
@@ -504,17 +531,31 @@ class Connection:
             response = await self._request(METH_GET, url)
             return response
         except aiohttp.client_exceptions.ClientResponseError as error:
+            data = {
+                'status_code': error.status,
+                'error': error.code,
+                'error_description': error.message,
+                'response_headers': error.headers,
+                'request_info': error.request_info
+            }
             if error.status == 401:
-                _LOGGER.warning(f'Received "unauthorized" error while fetching data: {error}')
+                _LOGGER.warning('Received "Unauthorized" while fetching data.\nThis can occur if tokens expired or refresh service is unavailable.')
             elif error.status == 400:
-                _LOGGER.error(f'Got HTTP 400 {error}"Bad Request" from server, this request might be malformed or not implemented correctly for this vehicle')
+                _LOGGER.error('Received "Bad Request" from server.\nThe request might be malformed or not implemented correctly for this vehicle.')
+            elif error.status == 412:
+                _LOGGER.debug('Received "Pre-condition failed".\nService might be temporarily unavailable.')
             elif error.status == 500:
-                _LOGGER.info('Got HTTP 500 from server, service might be temporarily unavailable')
+                _LOGGER.info('Received "Internal server error".\nThe service is temporarily unavailable.')
             elif error.status == 502:
-                _LOGGER.info('Got HTTP 502 from server, this request might not be supported for this vehicle')
+                _LOGGER.info('Received "Bad gateway".\nEither the endpoint is temporarily unavailable or not supported for this vehicle.')
+            elif 400 <= error.status <= 499:
+                _LOGGER.error('Received unhandled error indicating client-side problem.\nRestart or try again later.')
+            elif 500 <= error.status <= 599:
+                _LOGGER.error('Received unhandled error indicating server-side problem.\nThe service might be temporarily unavailable.')
             else:
-                _LOGGER.error(f'Got unhandled error from server: {error.status}')
-            return {'status_code': error.status}
+                _LOGGER.error('Received unhandled error while requesting API endpoint.')
+            _LOGGER.debug(f'HTTP request information: {data}')
+            return data
         except Exception as e:
             _LOGGER.debug(f'Got non HTTP related error: {e}')
 
@@ -527,7 +568,8 @@ class Connection:
 
     async def _request(self, method, url, **kwargs):
         """Perform a HTTP query"""
-        _LOGGER.debug(f'HTTP {method} "{url}"')
+        if self._session_fulldebug:
+            _LOGGER.debug(f'HTTP {method} "{url}"')
         async with self._session.request(
             method,
             url,
@@ -580,6 +622,7 @@ class Connection:
             _LOGGER.debug(f'Data call returned: {response}')
             return response
         except aiohttp.client_exceptions.ClientResponseError as error:
+            _LOGGER.debug(f'Request failed. Data: {data}, HTTP request headers: {self._session_headers}')
             if error.status == 401:
                 _LOGGER.error('Unauthorized')
             elif error.status == 400:
@@ -628,50 +671,58 @@ class Connection:
     async def get_vehicles(self):
         """Fetch vehicle information from user profile."""
         skoda_vehicles = []
+
+        # Check if user needs to update consent
+        try:
+            await self.set_token('connect')
+            consent = await self.getConsentInfo()
+            if isinstance(consent, dict):
+                _LOGGER.debug(f'Consent returned {consent}')
+                if 'status' in consent.get('mandatoryConsentInfo', []):
+                    if consent.get('mandatoryConsentInfo', [])['status'] != 'VALID':
+                        _LOGGER.error(f'The user needs to update consent for {consent.get("mandatoryConsentInfo", [])["id"]}. If problems are encountered please visit the web portal first and accept terms and conditions.')
+                        #raise SkodaEULAException(f'User needs to update consent for {consent.get("mandatoryConsentInfo", [])["id"]}')
+                elif len(consent.get('missingMandatoryFields', [])) > 0:
+                    _LOGGER.error(f'Missing mandatory field for user: {consent.get("missingMandatoryFields", [])[0].get("name", "")}. If problems are encountered please visit the web portal first and accept terms and conditions.')
+                    #raise SkodaEULAException(f'Missing mandatory field for user: {consent.get("missingMandatoryFields", [])[0].get("name", "")}')
+                else:
+                    _LOGGER.debug('User consent is valid, no missing information for profile')
+            else:
+                _LOGGER.debug('Could not fetch consent information. If problems are encountered please visit the web portal first and make sure that no new terms and conditions need to be accepted.')
+        except:
+            _LOGGER.debug('Could not fetch consent information. If problems are encountered please visit the web portal first and make sure that no new terms and conditions need to be accepted.')
+            #raise
+
         # Authorize for "skoda" client and get vehicles from garage endpoint
         try:
             await self.set_token('skoda')
-            skoda_vehicles = await self.get(
+            response = await self.get(
                 'https://api.connect.skoda-auto.cz/api/v2/garage/vehicles'
             )
+            # Check that response is a list
+            if isinstance(response, list):
+                skoda_vehicles = response
         except:
             raise
 
         # If Skoda API return no cars, fallback to VW-Group API
-        if not skoda_vehicles:
-            # Check if user needs to update consent
-            try:
-                await self.set_token('connect')
-                consent = await self.getConsentInfo()
-                if isinstance(consent, dict):
-                    _LOGGER.debug(f'Consent returned {consent}')
-                    if 'status' in consent.get('mandatoryConsentInfo', []):
-                        if consent.get('mandatoryConsentInfo', [])['status'] != 'VALID':
-                            raise SkodaEULAException(f'User needs to update consent for {consent.get("mandatoryConsentInfo", [])["id"]}')
-                    elif len(consent.get('missingMandatoryFields', [])) > 0:
-                        raise SkodaEULAException(f'Missing mandatory field for user: {consent.get("missingMandatoryFields", [])[0].get("name", "")}')
-                    else:
-                        _LOGGER.debug('User consent is valid, no missing information for profile')
-                else:
-                    _LOGGER.debug('Could not retrieve consent information')
-            except:
-                raise
-            _LOGGER.debug('Skoda native API returned no cars! Using fallback legacy discovery.')
+        if len(skoda_vehicles) == 0:
+            _LOGGER.debug('Skoda native API returned no vehicles. Using fallback VW-Group API.')
             try:
                 await self.set_token('vwg')
                 self._session_headers.pop('Content-Type', None)
-                vwg_vehicles = await self.get(
+                response = await self.get(
                     url=f'https://msg.volkswagen.de/fs-car/usermanagement/users/v1/{BRAND}/{COUNTRY}/vehicles'
                 )
 
-                if vwg_vehicles.get('userVehicles', {}).get('vehicle', False):
+                if response.get('userVehicles', {}).get('vehicle', False):
                     _LOGGER.debug('Found vehicle(s) associated with account.')
-                    for vehicle in vwg_vehicles.get('userVehicles').get('vehicle'):
+                    for vehicle in response.get('userVehicles').get('vehicle'):
                         await self.set_token('skoda')
-                        response = await self.get(url=f'https://api.connect.skoda-auto.cz/api/v2/vehicles/{vehicle}')
-                        if response.get('vehicleSpecification', False):
-                            response['vin'] = vehicle
-                            skoda_vehicles.append(response)
+                        vehicle_info = await self.get(url=f'https://api.connect.skoda-auto.cz/api/v2/vehicles/{vehicle}')
+                        if vehicle_info.get('vehicleSpecification', False):
+                            vehicle_info['vin'] = vehicle
+                            skoda_vehicles.append(vehicle_info)
                         else:
                             _LOGGER.warning(f"Failed to aquire information about vehicle with VIN {vehicle}")
             except:
@@ -680,6 +731,7 @@ class Connection:
         # If neither API returns any vehicles, raise an error
         if len(skoda_vehicles) == 0:
             raise SkodaConfigException("No vehicles were found for given account!")
+
         # Get vehicle connectivity information
         else:
             try:
@@ -826,18 +878,24 @@ class Connection:
             data = {'error': 'unknown'}
         return data
 
-    async def getModelImageURL(self, vin):
+    async def getModelImageURL(self, vin, size):
         """Construct the URL for the model image."""
         try:
             # Construct message to be encrypted
             date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%mZ')
-            message = MODELAPPID +'\n'+ MODELAPI +'?vin='+ vin +'&view='+ MODELVIEW +'&date='+ date
+            if size in ['S', 's', 'Small', 'small']:
+                message = MODELAPPID +'\n'+ MODELAPI +'?vin='+ vin +'&view='+ MODELVIEWS +'&date='+ date
+            else:
+                message = MODELAPPID +'\n'+ MODELAPI +'?vin='+ vin +'&view='+ MODELVIEWL +'&date='+ date
             # Construct hmac SHA-256 key object and encode the message
             digest = hmac.new(MODELAPIKEY, msg=message.encode(), digestmod=hashlib.sha256).digest()
             b64enc = {'sign': b64encode(digest).decode()}
             sign = urlencode(b64enc)
             # Construct the URL
-            path = MODELAPI +'?vin='+ vin +'&view='+ MODELVIEW +'&appId='+ MODELAPPID +'&date='+ date +'&'+ sign
+            if size in ['S', 's', 'Small', 'small']:
+                path = MODELAPI +'?vin='+ vin +'&view='+ MODELVIEWS +'&appId='+ MODELAPPID +'&date='+ date +'&'+ sign
+            else:
+                path = MODELAPI +'?vin='+ vin +'&view='+ MODELVIEWL +'&appId='+ MODELAPPID +'&date='+ date +'&'+ sign
             url = MODELHOST + path
             try:
                 response = await self._session.get(
@@ -845,7 +903,7 @@ class Connection:
                     allow_redirects=False
                 )
                 if response.headers.get('Location', False):
-                    return response.headers.get('Location')
+                    return response.headers.get('Location').split('?')[0]
                 else:
                     _LOGGER.debug('Could not fetch Model image URL, request returned with status code {response.status_code}')
             except:
@@ -983,7 +1041,7 @@ class Connection:
             if response.get('timers', []):
                 data = {'timers': response.get('timers', [])}
                 return data
-            elif chargerStatus.get('status_code', {}):
+            elif response.get('status_code', False):
                 _LOGGER.warning(f'Could not fetch timers, HTTP status code: {response.get("status_code")}')
             else:
                 _LOGGER.info('Unhandled error while trying to fetch timers data')
@@ -1024,12 +1082,12 @@ class Connection:
                 data = {'airConditioning': airconData[0]}
                 if len(airconData) >= 2:
                     data['airConditioningSettings'] = airconData[1]
-                if len(airconData) >= 3:
-                    data['airConditioningTimers'] = airconData[2]
                 _LOGGER.info(f"Returning with data {data}")
                 return data
-            elif response.get('status_code', {}):
-                _LOGGER.warning(f'Could not fetch air-conditioning, HTTP status code: {response.get("status_code")}')
+            elif airconData[0].get('status_code', False):
+                _LOGGER.warning(f'Could not fetch air-conditioning data, HTTP status code: {airconData[0].get("status_code")}')
+            elif airconData[1].get('status_code', False):
+                _LOGGER.warning(f'Could not fetch air-conditioning settings, HTTP status code: {airconData[1].get("status_code")}')
             else:
                 _LOGGER.info('Unhandled error while trying to fetch air-conditioning data')
         except Exception as error:
@@ -1066,7 +1124,6 @@ class Connection:
             chargingData = await asyncio.gather(chargerStatus, chargerSettings)
 
             if chargingData[0].get('battery', {}) or chargingData[1].get('maxChargeCurrentAc', {}):
-                _LOGGER.debug(f'Got vehicle charging data')
                 response = chargingData[0]
                 response['chargerSettings'] = chargingData[1]
                 return response
@@ -1103,6 +1160,7 @@ class Connection:
     async def get_request_status(self, vin, sectionId, requestId):
         """Return status of a request ID for a given section ID."""
         try:
+            error_code = None
             # Requests for Skoda Native API
             if sectionId in ['charging',  'air-conditioning']:
                 url = 'https://api.connect.skoda-auto.cz/api/v1/$sectionId/operation-requests/$requestId'
@@ -1451,6 +1509,7 @@ class Connection:
             url = f"https://api.connect.skoda-auto.cz/api/v1/{endpoint}/operation-requests?vin={vin}"
             response = await self._data_call(url, **data)
             if not response:
+                _LOGGER.debug(f'API call failed, data: {data}')
                 raise SkodaException('Invalid or no response')
             else:
                 request_id = response.get('id', 0)
