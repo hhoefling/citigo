@@ -10,7 +10,7 @@ Lege /var/www/http/lp1 mit Schreibrechte für alle an, also 0777
 
 Lege /var/www/http/lp1/soc_citigo mit Schreibrechte für alle an, also 0777
 
-kopiere falls es eine akutellere gibt den Unteroder skodakonnect aus dem Skodaproject Project dort hinein,
+kopiere falls es eine akutellere gibt den Unterorder skodakonnect aus dem Skodaproject Project dort hinein,
 bei mir hab ich dann folgende Strucktur:
 ```
 root@Hal3:/# ls -l /var/www/html/lp1/soc_citigo/skodaconnect/
