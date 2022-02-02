@@ -110,20 +110,10 @@ TOKEN_HEADERS = {
     }
 }
 
-# Request error codes, not yet in use
 ERROR_CODES = {
     '11': 'Charger not connected'
 }
 
-# Constants related to model image URL construction
-MODELVIEWL = 'w1080'                                    # Related to image size, large
-MODELVIEWS = 'main'                                     # Related to image size, small
-MODELAPPID = 'ModcwpMobile'                             # Client ID, other ID might require other key
-MODELAPIKEY = b'P{+!!H:+I#6)SJS_?[_wh6puD#UH*%l:'       # Key used to sign message
-MODELAPI = 'ms/GetMODCWPImage'                          # API base path
-MODELHOST = 'https://iaservices.skoda-auto.com/'        # API host
-
-### API Endpoints below, not yet in use ###
 # API AUTH endpoints
 AUTH_OIDCONFIG = 'https://identity.vwgroup.io/.well-known/openid-configuration'                     # OpenID configuration
 AUTH_TOKEN = 'https://tokenrefreshservice.apps.emea.vwapps.io/exchangeAuthCode'                     # Endpoint for exchanging authcode for token

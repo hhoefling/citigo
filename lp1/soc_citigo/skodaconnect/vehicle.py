@@ -15,7 +15,6 @@ from skodaconnect.exceptions import (
     SkodaConfigException,
     SkodaException,
     SkodaEULAException,
-    SkodaServiceUnavailable,
     SkodaThrottledException,
     SkodaInvalidRequestException,
     SkodaRequestInProgressException
@@ -23,7 +22,6 @@ from skodaconnect.exceptions import (
 
 _LOGGER = logging.getLogger(__name__)
 
-DATEZERO = datetime(1970,1,1)
 class Vehicle:
     def __init__(self, conn, data):
         _LOGGER.debug(f'Creating Vehicle class object with data {data}')
@@ -33,24 +31,21 @@ class Vehicle:
         self._capabilities = data.get('capabilities', [])
         self._specification = data.get('specification', {})
         self._homeregion = 'https://msg.volkswagen.de'
-        self._modelimagel = None
-        self._modelimages = None
         self._discovered = False
-        self._dashboard = None
         self._states = {}
 
         self._requests = {
-            'departuretimer': {'status': 'N/A', 'timestamp': DATEZERO},
-            'batterycharge': {'status': 'N/A', 'timestamp': DATEZERO},
-            'climatisation': {'status': 'N/A', 'timestamp': DATEZERO},
-            'air-conditioning': {'status': 'N/A', 'timestamp': DATEZERO},
-            'refresh': {'status': 'N/A', 'timestamp': DATEZERO},
-            'lock': {'status': 'N/A', 'timestamp': DATEZERO},
-            'honkandflash': {'status': 'N/A', 'timestamp': DATEZERO},
-            'preheater': {'status': 'N/A', 'timestamp': DATEZERO},
+            'departuretimer': {'status': '', 'timestamp': datetime.now()},
+            'batterycharge': {'status': '', 'timestamp': datetime.now()},
+            'climatisation': {'status': '', 'timestamp': datetime.now()},
+            'air-conditioning': {'status': '', 'timestamp': datetime.now()},
+            'refresh': {'status': '', 'timestamp': datetime.now()},
+            'lock': {'status': '', 'timestamp': datetime.now()},
+            'honkandflash': {'status': '', 'timestamp': datetime.now()},
+            'preheater': {'status': '', 'timestamp': datetime.now()},
             'remaining': -1,
-            'latest': 'N/A',
-            'state': 'N/A'
+            'latest': '',
+            'state': ''
         }
         self._climate_duration = 30
 
@@ -100,6 +95,8 @@ class Vehicle:
                 self.get_realcardata(),
                 return_exceptions=True
             )
+            _LOGGER.info(f'Vehicle "{self.nickname}" - ({self.vin}) added. Homeregion is "{self._homeregion}"')
+
             _LOGGER.debug('Attempting discovery of supported API endpoints for vehicle.')
             operationList = await self._connection.getOperationList(self.vin)
             if operationList:
@@ -111,6 +108,7 @@ class Vehicle:
                             data = {}
                             serviceName = service.get('serviceId', None)
                             if service.get('serviceStatus', {}).get('status', 'Disabled') == 'Enabled':
+                                _LOGGER.debug(f'Discovered enabled service: {service["serviceId"]}')
                                 data['active'] = True
                                 if service.get('cumulatedLicense', {}).get('expirationDate', False):
                                     data['expiration'] = service.get('cumulatedLicense', {}).get('expirationDate', None).get('content', None)
@@ -118,7 +116,6 @@ class Vehicle:
                                     data.update({'operations': []})
                                     for operation in service.get('operation', []):
                                         data['operations'].append(operation.get('id', None))
-                                _LOGGER.debug(f'Discovered active supported service: {serviceName}, licensed until {data.get("expiration").strftime("%Y-%m-%d %H:%M:%S")}')
                             elif service.get('serviceStatus', {}).get('status', None) == 'Disabled':
                                 reason = service.get('serviceStatus', {}).get('reason', 'Unknown')
                                 _LOGGER.debug(f'Service: {serviceName} is disabled because of reason: {reason}')
@@ -132,11 +129,6 @@ class Vehicle:
                         pass
             else:
                 _LOGGER.warning(f'Could not determine available API endpoints for {self.vin}')
-            if self._connection._session_fulldebug:
-                for endpointName, endpoint in self._services.items():
-                    if endpoint.get('active', False):
-                        _LOGGER.debug(f'API endpoint "{endpointName}" valid until {endpoint.get("expiration").strftime("%Y-%m-%d %H:%M:%S")} - operations: {endpoint.get("operations", [])}')
-
         # For Skoda native API
         elif 'REMOTE' in self._connectivities:
             for service in self._services:
@@ -148,11 +140,7 @@ class Vehicle:
             self._services = {'vehicle_status': {'active': True}}
         else:
             self._services = {}
-
-        # Get URLs for model image
-        self._modelimagel = await self.get_modelimageurl(size='L')
-        self._modelimages = await self.get_modelimageurl(size='S')
-
+        _LOGGER.debug(f'API endpoints: {self._services}')
         self._discovered = datetime.now()
 
     async def update(self):
@@ -188,10 +176,6 @@ class Vehicle:
         return True
 
   # Data collection functions
-    async def get_modelimageurl(self, size='L'):
-        """Fetch the URL for model image."""
-        return await self._connection.getModelImageURL(self.vin, size)
-
     async def get_realcardata(self):
         """Fetch realcar data."""
         data = await self._connection.getRealCarData()
@@ -347,9 +331,9 @@ class Vehicle:
                     # Skoda Native API charger current request, does this work?
                     elif self._services.get('CHARGING', False) is not False:
                         data = {'chargingSettings': {
-                                'autoUnlockPlugWhenCharged': self.attrs.get('chargerSettings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
+                                'autoUnlockPlugWhenCharged': self.attrs.get('charger', {}).get('settings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
                                 'maxChargeCurrentAc': value,
-                                'targetStateOfChargeInPercent': self.attrs.get('chargerSettings', {}).get('targetStateOfChargeInPercent', 100)},
+                                'targetStateOfChargeInPercent': self.attrs.get('charger', {}).get('settings', {}).get('targetStateOfChargeInPercent', 100)},
                             'type': 'UpdateSettings'
                         }
                 else:
@@ -366,9 +350,9 @@ class Vehicle:
                     elif self._services.get('CHARGING', False) is not False:
                         value = 'Maximum' if value in ['Maximum', 'maximum', 'Max', 'max'] else 'Reduced'
                         data = {'chargingSettings': {
-                                'autoUnlockPlugWhenCharged': self.attrs.get('chargerSettings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
+                                'autoUnlockPlugWhenCharged': self.attrs.get('charger', {}).get('settings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
                                 'maxChargeCurrentAc': value,
-                                'targetStateOfChargeInPercent': self.attrs.get('chargerSettings', {}).get('targetStateOfChargeInPercent', 100)},
+                                'targetStateOfChargeInPercent': self.attrs.get('charger', {}).get('settings', {}).get('targetStateOfChargeInPercent', 100)},
                             'type': 'UpdateSettings'
                         }
                 else:
@@ -411,7 +395,7 @@ class Vehicle:
                 data = {'type': action.capitalize()}
             elif action.get('action', {}) == 'chargelimit':
                 data = {'chargingSettings': {
-                            'autoUnlockPlugWhenCharged': self.attrs.get('chargerSettings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
+                            'autoUnlockPlugWhenCharged': self.attrs.get('charger', {}).get('settings', {}).get('autoUnlockPlugWhenCharged', 'Off'),
                             'maxChargeCurrentAc': self.charge_max_ampere,
                             'targetStateOfChargeInPercent': action.get('limit', 50)},
                         'type': 'UpdateSettings'
@@ -586,10 +570,6 @@ class Vehicle:
                 if isinstance(schedule.get('chargeMaxCurrent', None), str):
                     if not schedule.get("chargeMaxCurrent", None) in ['Maximum', 'maximum', 'Max', 'max', 'Minimum', 'minimum', 'Min', 'min', 'Reduced', 'reduced']:
                         raise SkodaInvalidRequestException('Charge current must be one of Maximum/Minimum/Reduced')
-                    elif 'ONLINE' in self._connectivities:
-                        # Set string to numeric value for VW-Group API
-                        schedule['chargeMaxCurrent'] = 252
-                        if schedule.get("chargeMaxCurrent", None) in ['Maximum', 'maximum', 'Max', 'max']: schedule['chargeMaxCurrent'] = 254
                 elif isinstance(schedule.get('chargeMaxCurrent', None), int):
                     if not 1 <= int(schedule.get("chargeMaxCurrent", 254)) < 255:
                         raise SkodaInvalidRequestException('Charge current must be set from 1 to 254')
@@ -623,7 +603,7 @@ class Vehicle:
                             data['timersSettings']['timers'][index]['recurringOn'] = []
                             days = schedule.get('days', 'nnnnnnn')
                             for num in range(0, 7):
-                                if days[num] == 'y':
+                                if days[num] == y:
                                     data['timersSettings']['timers'][index]['recurringOn'].append(days[num])
                         else:
                             data['timersSettings']['timers'][index]['type'] = 'ONE_OFF'
@@ -711,36 +691,11 @@ class Vehicle:
         """Turn on/off window heater."""
         if self.is_window_heater_supported:
             if action in ['start', 'stop']:
-                # This is a Skoda native API vehicle
-                if self._services.get('AIR_CONDITIONING', False):
-                    data = {}
-                    # Fetch current climatisation settings
-                    airconData = await self._connection.getAirConditioning(self.vin)
-                    if airconData:
-                        airconData.pop('airConditioning', None)
-                        data = airconData
-                    else:
-                        # Try to use saved configuration from previous poll
-                        if self.attrs.get('airConditioningSettings', False):
-                            _LOGGER.warning('Failed to fetch climatisation settings, using saved values.')
-                            data = self.attrs.get('airConditioningSettings')
-                        else:
-                            _LOGGER.warning('Could not fetch current climatisation settings.')
-                            raise SkodaServiceUnavailable("Unable to fetch current settings.")
-                    data.pop('temperatureConversionTableUsed', None)
-                    data['airConditioningSettings']['type'] = 'UpdateSettings'
-                    if action == 'start':
-                        data['airConditioningSettings']['windowHeatingEnabled'] = True
-                    else:
-                        data['airConditioningSettings']['windowHeatingEnabled'] = False
-                    return await self._set_aircon(data)
-                else:
-                    # Vehicle is hosted by VW-Group API
-                    data = {'action': {'type': action + 'WindowHeating'}}
-                    return await self._set_climater(data)
+                data = {'action': {'type': action + 'WindowHeating'}}
             else:
                 _LOGGER.error(f'Window heater action "{action}" is not supported.')
                 raise SkodaInvalidRequestException(f'Window heater action "{action}" is not supported.')
+            return await self._set_climater(data)
         else:
             _LOGGER.error('No climatisation support.')
             raise SkodaInvalidRequestException('No climatisation support.')
@@ -760,7 +715,6 @@ class Vehicle:
 
     async def set_climatisation(self, mode = 'off', temp = None, hvpower = None, spin = None):
         """Turn on/off climatisation with electric/auxiliary heater."""
-        data = {}
         # Validate user input
         if mode not in ['electric', 'auxiliary', 'Start', 'Stop', 'on', 'off']:
             raise SkodaInvalidRequestException(f"Invalid mode for set_climatisation: {mode}")
@@ -803,31 +757,15 @@ class Vehicle:
                 if mode == 'auxiliary':
                     raise SkodaInvalidRequestException('No auxiliary climatisation support.')
                 if mode in ['Start', 'start', 'On', 'on', 'electric']:
-                    # Fetch current climatisation settings
+                    # Fetch current settings
                     airconData = await self._connection.getAirConditioning(self.vin)
                     if airconData:
-                        airconData.pop('airConditioning', None)
-                        data = airconData
+                        data = airconData.get('airConditioningSettings', False)
                     else:
-                        # Try to use saved configuration from previous poll, else use defaults
-                        if self.attrs.get('airConditioningSettings', False):
-                            _LOGGER.warning('Failed to fetch climatisation settings, using saved values.')
-                            data = self.attrs.get('airConditioningSettings')
-                        else:
-                            _LOGGER.warning('Could not fetch climatisation settings, using defaults.')
-                            data['airConditioningSettings'] = {
-                                'targetTemperatureInKelvin': 294.15,
-                                'windowHeatingEnabled': False,
-                                'airConditioningAtUnlock': False,
-                                'zonesSettings': {
-                                    'frontLeftEnabled': False,
-                                    'frontRightEnabled': False
-                                }
-                            }
-                    data.pop('temperatureConversionTableUsed', None)
+                        raise SkodaException("Failed to fetch current air-conditioning settings")
                     data['type'] = 'Start'
                     if temp is not None:
-                        data['airConditioningSettings']['targetTemperatureInKelvin'] = temp + 273.15
+                        data['airConditioningSettings'] = temp + 273.15
                 else:
                     data = {'type': 'Stop'}
                 return await self._set_aircon(data)
@@ -956,7 +894,6 @@ class Vehicle:
             }
         try:
             self._requests['latest'] = 'Preheater'
-            _LOGGER.debug(f'Executing setPreHeater with data: {data}')
             response = await self._connection.setPreHeater(self.vin, data, spin)
             if not response:
                 self._requests['preheater'] = {'status': 'Failed'}
@@ -1048,9 +985,8 @@ class Vehicle:
             raise SkodaInvalidRequestException(f'Invalid action "{action}", must be one of "flash" or "honkandflash"')
         try:
             # Get car position
-            if lat is None:
+            if lat is None and lng is None:
                 lat = int(self.attrs.get('findCarResponse', {}).get('Position', {}).get('carCoordinate', {}).get('latitude', None))
-            if lng is None:
                 lng = int(self.attrs.get('findCarResponse', {}).get('Position', {}).get('carCoordinate', {}).get('longitude', None))
             if lat is None or lng is None:
                 raise SkodaConfigException('No location available, location information is needed for this action')
@@ -1058,8 +994,8 @@ class Vehicle:
                 'honkAndFlashRequest': {
                     'serviceOperationCode': operationCode,
                     'userPosition': {
-                        'latitude': lat,
-                        'longitude': lng
+                        'latitude': latitude,
+                        'longitude': longitude
                     }
                 }
             }
@@ -1143,8 +1079,9 @@ class Vehicle:
     def get_attr(self, attr):
         return find_path(self.attrs, attr)
 
+    # METHOD NOT IN USE, not implemented yet
     async def expired(self, service):
-        """Check if access to service has expired. Return true if expired."""
+        """Check if access to service has expired."""
         try:
             now = datetime.utcnow()
             if self._services.get(service, {}).get('expiration', False):
@@ -1166,16 +1103,9 @@ class Vehicle:
             return False
 
     def dashboard(self, **config):
-        """Returns dashboard, creates new if none exist."""
-        if self._dashboard is None:
-            # Init new dashboard if none exist
-            from skodaconnect.dashboard import Dashboard
-            self._dashboard = Dashboard(self, **config)
-        elif config != self._dashboard._config:
-            # Init new dashboard on config change
-            from skodaconnect.dashboard import Dashboard
-            self._dashboard = Dashboard(self, **config)
-        return self._dashboard
+        #Classic python notation
+        from skodaconnect.dashboard import Dashboard
+        return Dashboard(self, **config)
 
     @property
     def vin(self):
@@ -1193,6 +1123,7 @@ class Vehicle:
         for car in self.attrs.get('realCars', []):
             if self.vin == car.get('vehicleIdentificationNumber', ''):
                 return car.get('nickname', None)
+        #return self._nickname
 
     @property
     def is_nickname_supported(self):
@@ -1240,25 +1171,15 @@ class Vehicle:
             return True
 
     @property
-    def model_image_small(self):
-        """Return URL for model image"""
-        return self._modelimages
+    def model_image(self):
+        #Not implemented
+        """Return model image"""
+        return self.attrs.get('imageUrl')
 
     @property
-    def is_model_image_small_supported(self):
-        """Return true if model image url is not None."""
-        if self._modelimages is not None:
-            return True
-
-    @property
-    def model_image_large(self):
-        """Return URL for model image"""
-        return self._modelimagel
-
-    @property
-    def is_model_image_large_supported(self):
-        """Return true if model image url is not None."""
-        if self._modelimagel is not None:
+    def is_model_image_supported(self):
+        #Not implemented
+        if self.attrs.get('imageUrl', False):
             return True
 
   # Lights
@@ -1441,25 +1362,6 @@ class Vehicle:
         return False
 
     @property
-    def min_charge_level(self):
-        """Return the charge level that car charges directly to"""
-        if self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerBasicSetting', {}).get('chargeMinLimit', False):
-            return self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerBasicSetting', {}).get('chargeMinLimit', 0)
-        elif self.attrs.get('chargerSettings', False):
-            return self.attrs.get('chargerSettings', {}).get('targetStateOfChargeInPercent', 0)
-        else:
-            return 0
-
-    @property
-    def is_min_charge_level_supported(self):
-        """Return true if car supports setting the min charge level"""
-        if self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerBasicSetting', {}).get('chargeMinLimit', False):
-            return True
-        elif self.attrs.get('chargerSettings', {}).get('targetStateOfChargeInPercent', False):
-            return True
-        return False
-
-    @property
     def battery_level(self):
         """Return battery level"""
         if self.attrs.get('charger', False):
@@ -1498,7 +1400,6 @@ class Vehicle:
         elif self.attrs.get('chargerSettings', False):
             value = self.attrs.get('chargerSettings', {}).get('maxChargeCurrentAc', 'Unknown')
             return value
-        return 0
 
     @property
     def is_charge_max_ampere_supported(self):
@@ -1567,12 +1468,12 @@ class Vehicle:
             elif self.attrs.get('charger', {}).get('status', {}).get('batteryStatusData', {}).get('remainingChargingTime', False):
                 minutes = self.attrs.get('charger', {}).get('status', {}).get('batteryStatusData', {}).get('remainingChargingTime', {}).get('content', 0)
             try:
-                if minutes == -1: return '00:00'
-                if minutes == 65535: return '00:00'
+                if minutes == -1: return "00:00"
+                if minutes == 65535: return "00:00"
                 return "%02d:%02d" % divmod(minutes, 60)
             except Exception:
                 pass
-        return '00:00'
+        return "00:00"
 
     @property
     def is_charging_time_left_supported(self):
@@ -1789,7 +1690,7 @@ class Vehicle:
         if self.attrs.get('climater', False):
             value = self.attrs.get('climater').get('settings', {}).get('targetTemperature', {}).get('content', 2730)
         elif self.attrs.get('airConditioningSettings', False):
-            value = float(self.attrs.get('airConditioningSettings').get('targetTemperatureInKelvin', 273.15)-0.15)*10
+            value = float(self.attrs.get('airConditioningSettings').get('targetTemperatureInKelvin', 273.15) * 10)
         if value:
             reply = float((value / 10) - 273)
             return reply
@@ -1864,22 +1765,6 @@ class Vehicle:
 
   # Climatisation, electric
     @property
-    def electric_climatisation_attributes(self):
-        """Return climatisation attributes."""
-        data = {}
-        if self.attrs.get('climater', {}).get('status', {}).get('climatisationStatusData', {}).get('climatisationState', {}).get('content', False):
-            data['source'] = self.attrs.get('climater', {}).get('settings', {}).get('heaterSource', {}).get('content', '')
-            data['status'] = self.attrs.get('climater', {}).get('status', {}).get('climatisationStatusData', {}).get('climatisationState', {}).get('content', '')
-        elif self.attrs.get('airConditioning', False):
-            data['status'] = self.attrs.get('airConditioning', {}).get('state', '')
-        return data
-
-    @property
-    def is_electric_climatisation_attributes_supported(self):
-        """Return true if vehichle has climater."""
-        return self.is_climatisation_supported
-
-    @property
     def electric_climatisation(self):
         """Return status of climatisation."""
         if self.attrs.get('climater', {}).get('status', {}).get('climatisationStatusData', {}).get('climatisationState', {}).get('content', False):
@@ -1887,7 +1772,7 @@ class Vehicle:
             status = self.attrs.get('climater', {}).get('status', {}).get('climatisationStatusData', {}).get('climatisationState', {}).get('content', '')
             if status in ['heating', 'cooling', 'on'] and climatisation_type == 'electric':
                 return True
-        elif self.attrs.get('airConditioning', {}).get('state', 'off').lower() in ['on', 'heating', 'cooling', 'ventilation']:
+        elif self.attrs.get('airConditioning', {}).get('state', False) in ['ON', 'On', 'on']:
             return True
         return False
 
@@ -1929,18 +1814,6 @@ class Vehicle:
         return False
 
     @property
-    def aircon_at_unlock(self):
-        """Return status of air-conditioning at unlock setting."""
-        return self.attrs.get('airConditioningSettings', {}).get('airConditioningAtUnlock', False)
-
-    @property
-    def is_aircon_at_unlock_supported(self):
-        """Return true if air-conditioning at unlock is supported."""
-        if self.attrs.get('airConditioningSettings', {}).get('airConditioningAtUnlock', False):
-            return True
-        return False
-
-    @property
     def window_heater(self):
         """Return status of window heater."""
         if self.attrs.get('climater', False):
@@ -1971,50 +1844,18 @@ class Vehicle:
         return False
 
     @property
-    def seat_heating_front_left(self):
-        """Return status of seat heating front left."""
-        return self.attrs.get('airConditioningSettings', {}).get('zonesSettings', {}).get('frontLeftEnabled', False)
-
-    @property
-    def is_seat_heating_front_left_supported(self):
-        """Return true if vehichle has seat heating front left."""
-        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}).get('frontLeftAvailable', False):
-            return True
+    def seat_heating(self):
+        """Return status of seat heating."""
+        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', False):
+            for element in self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}):
+                if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}).get(element, False):
+                    return True
         return False
 
     @property
-    def seat_heating_front_right(self):
-        """Return status of seat heating front right."""
-        return self.attrs.get('airConditioningSettings', {}).get('zonesSettings', {}).get('frontRightEnabled', False)
-
-    @property
-    def is_seat_heating_front_right_supported(self):
-        """Return true if vehichle has seat heating front right."""
-        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}).get('frontRightAvailable', False):
-            return True
-        return False
-
-    @property
-    def seat_heating_rear_left(self):
-        """Return status of seat heating rear left."""
-        return self.attrs.get('airConditioningSettings', {}).get('zonesSettings', {}).get('rearLeftEnabled', False)
-
-    @property
-    def is_seat_heating_rear_left_supported(self):
-        """Return true if vehichle has seat heating rear left."""
-        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}).get('rearLeftAvailable', False):
-            return True
-        return False
-
-    @property
-    def seat_heating_rear_right(self):
-        """Return status of seat heating rear right."""
-        return self.attrs.get('airConditioningSettings', {}).get('zonesSettings', {}).get('rearRightEnabled', False)
-
-    @property
-    def is_seat_heating_rear_right_supported(self):
-        """Return true if vehichle has seat heating rear right."""
-        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', {}).get('rearRightAvailable', False):
+    def is_seat_heating_supported(self):
+        """Return true if vehichle has seat heating."""
+        if self.attrs.get('airConditioning', {}).get('seatHeatingSupport', False):
             return True
         return False
 
@@ -2354,10 +2195,11 @@ class Vehicle:
     @property
     def is_departure1_supported(self):
         """Return true if timer 1 is supported."""
-        if len(self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerList', {}).get('timer', [])) >=1:
+        if self.attrs.get('departuretimer', False):
             return True
-        elif len(self.attrs.get('timers', [])) >= 1:
-            return True
+        elif self.attrs.get('timers', False):
+            if len(self.attrs.get('timers', [])) >= 1:
+                return True
         return False
 
     @property
@@ -2397,10 +2239,11 @@ class Vehicle:
     @property
     def is_departure2_supported(self):
         """Return true if timer 2 is supported."""
-        if len(self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerList', {}).get('timer', [])) >= 2:
+        if self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerList', {}).get('timer', False):
             return True
-        elif len(self.attrs.get('timers', [])) >= 2:
-            return True
+        elif self.attrs.get('timers', False):
+            if len(self.attrs.get('timers', [])) >= 2:
+                return True
         return False
 
     @property
@@ -2440,10 +2283,11 @@ class Vehicle:
     @property
     def is_departure3_supported(self):
         """Return true if timer 3 is supported."""
-        if len(self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerList', {}).get('timer', [])) >= 3:
+        if self.attrs.get('departuretimer', {}).get('timersAndProfiles', {}).get('timerList', {}).get('timer', False):
             return True
-        elif len(self.attrs.get('timers', [])) >= 3:
-            return True
+        elif self.attrs.get('timers', False):
+            if len(self.attrs.get('timers', [])) >= 3:
+                return True
         return False
 
   # Trip data
@@ -2565,32 +2409,9 @@ class Vehicle:
         return self._requests.get('refresh', {}).get('status', 'None')
 
     @property
-    def refresh_action_timestamp(self):
-        """Return timestamp of latest data refresh request."""
-        timestamp = self._requests.get('refresh', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
     def charger_action_status(self):
         """Return latest status of charger request."""
         return self._requests.get('batterycharge', {}).get('status', 'None')
-
-    @property
-    def charger_action_timestamp(self):
-        """Return timestamp of latest charger request."""
-        timestamp = self._requests.get('charger', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def aircon_action_status(self):
-        """Return latest status of air-conditioning request."""
-        return self._requests.get('air-conditioning', {}).get('status', 'None')
-
-    @property
-    def aircon_action_timestamp(self):
-        """Return timestamp of latest air-conditioning request."""
-        timestamp = self._requests.get('air-conditioning', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def climater_action_status(self):
@@ -2598,21 +2419,9 @@ class Vehicle:
         return self._requests.get('climatisation', {}).get('status', 'None')
 
     @property
-    def climater_action_timestamp(self):
-        """Return timestamp of latest climater request."""
-        timestamp = self._requests.get('climatisation', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
     def pheater_action_status(self):
         """Return latest status of parking heater request."""
         return self._requests.get('preheater', {}).get('status', 'None')
-
-    @property
-    def pheater_action_timestamp(self):
-        """Return timestamp of latest parking heater request."""
-        timestamp = self._requests.get('preheater', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def honkandflash_action_status(self):
@@ -2620,32 +2429,14 @@ class Vehicle:
         return self._requests.get('honkandflash', {}).get('status', 'None')
 
     @property
-    def honkandflash_action_timestamp(self):
-        """Return timestamp of latest honk and flash request."""
-        timestamp = self._requests.get('honkandflash', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
     def lock_action_status(self):
         """Return latest status of lock action request."""
         return self._requests.get('lock', {}).get('status', 'None')
 
     @property
-    def lock_action_timestamp(self):
-        """Return timestamp of latest lock action request."""
-        timestamp = self._requests.get('lock', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
     def timer_action_status(self):
-        """Return latest status of departure timer request."""
+        """Return latest status of lock action request."""
         return self._requests.get('departuretimer', {}).get('status', 'None')
-
-    @property
-    def timer_action_timestamp(self):
-        """Return timestamp of latest departure timer request."""
-        timestamp = self._requests.get('departuretimer', {}).get('timestamp', DATEZERO)
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
     def refresh_data(self):
@@ -2655,7 +2446,7 @@ class Vehicle:
 
     @property
     def is_refresh_data_supported(self):
-        """Data refresh is supported."""
+        """Data refresh is supported for Skoda Connect."""
         if 'ONLINE' in self._connectivities:
             return True
 
@@ -2716,14 +2507,12 @@ class Vehicle:
     def request_results(self):
         """Get last request result."""
         data = {
-            'latest': self._requests.get('latest', 'N/A'),
-            'state': self._requests.get('state', 'N/A'),
+            'latest': self._requests.get('latest', None),
+            'state': self._requests.get('state', None)
         }
         for section in self._requests:
-            if section in ['departuretimer', 'batterycharge', 'air-conditioning', 'climatisation', 'refresh', 'lock', 'preheater']:
-                timestamp = self._requests.get(section, {}).get('timestamp', DATEZERO)
-                data[section] = self._requests[section].get('status', 'N/A')
-                data[section+'_timestamp'] = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            if section in ['departuretimer', 'batterycharge', 'climatisation', 'refresh', 'lock', 'preheater']:
+                data[section] = self._requests[section].get('status', 'Unknown')
         return data
 
     @property
