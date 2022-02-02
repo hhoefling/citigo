@@ -3,7 +3,7 @@ Nur zwei Tage funktionierte die Version mit Skodaconnect 1.1.14.
 
 Schon am 2.2.2022 gab es wieder Störungen.
 
-Seit dem funktioiert diese Version wieder.
+Seit dem funktioniert diese Version wieder.
 
 # citigo
 
