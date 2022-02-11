@@ -1,3 +1,6 @@
+#
+Aktuell functioniert die Version 1.1.14 (Sieh im dortigen Branche)
+
 # citigo
 
 Kopplung des Skoda-Citigo eIv an die Wallboxsoftware OpenWB
