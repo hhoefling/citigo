@@ -1,5 +1,5 @@
 #
-Aktuell functioniert die Version 1.1.14 (Sieh im dortigen Branche)
+Aktuell funktioniert die Version 1.1.14 (Siehe im dortigen Branche)
 
 # citigo
 
