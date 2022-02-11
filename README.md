@@ -1,3 +1,10 @@
+Backport to Skodaconnect 1.1.14
+
+Nachdem nun einige Tage nur die 1.1.3 funktionierte geht ab Heute (11.2.2022) 
+wieder die 1.1.14
+
+Die schon verfügbaree 1.1.19 functioniert bei mir nicht.
+
 # citigo
 
 Kopplung des Skoda-Citigo eIv an die Wallboxsoftware OpenWB
