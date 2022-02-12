@@ -1,3 +1,4 @@
+!/usr/bin/php
 <?php
 
 # erzeugt soc.txt asyncron da es laenger dauerk kann
