@@ -23,7 +23,6 @@ insgesamt 260
 -rwxr--r-- 1 root root  31503  5. Sep 18:30 dashboard.py
 -rwxr--r-- 1 root root   2940  5. Sep 18:30 exceptions.py
 -rwxr--r-- 1 root root    289  5. Sep 18:30 __init__.py
-drwxr-xr-x 2 root root   4096  3. Nov 19:46 __pycache__
 -rwxr--r-- 1 root root   2565  5. Sep 18:30 utilities.py
 -rwxr--r-- 1 root root 117301  5. Sep 18:30 vehicle.py
 -rwxr--r-- 1 root root    226  5. Sep 18:30 __version__.py
