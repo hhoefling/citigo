@@ -30,6 +30,7 @@ root@Hal3:/#
 ```
 
 Lege eine Config Datei dazu **var/www/html/lp1/soc_citigo/getsoc.conf**
+
 Inhalt: 
 ```
 # Accountdaten von myskoda
