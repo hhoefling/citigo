@@ -13,9 +13,9 @@ Als Basis dient das Skodaconnect Module von https://github.com/lendy007/skodacon
 
 **Installation**
 
-Lege /var/www/http/lp1 mit Schreibrechte für alle an, also 0777
+Lege /var/www/html/lp1 mit Schreibrechte für alle an, also 0777
 
-Lege /var/www/http/lp1/soc_citigo mit Schreibrechte für alle an, also 0777
+Lege /var/www/html/lp1/soc_citigo mit Schreibrechte für alle an, also 0777
 
 kopiere falls es eine akutellere gibt den Unterorder skodakonnect aus dem Skodaproject Project dort hinein,
 bei mir hab ich dann folgende Strucktur:
@@ -86,7 +86,7 @@ Das sollte dann folgendes liefern
 
 ```
 callskoda.py for LP1 debug:1
-Init Skoda Connect library, version 1.1.3
+Init Skoda Connect library, version 1.1.4
 Initiating new session to Skoda Connect with xxxx@xxx.de as username
 Attempting to login to the Skoda Connect service
 2021-11-03 21:54:40.989817
