@@ -30,7 +30,7 @@ CLIENT_LIST = {
 XCLIENT_ID = 'a83d7e44-c8b7-42b7-b8ca-e478270d2091'
 XAPPVERSION = '3.2.6'
 XAPPNAME = 'cz.skodaauto.connect'
-USER_AGENT = 'okhttp/3.14.9'
+USER_AGENT = 'OneConnect/000000148 CFNetwork/1485 Darwin/23.1.0'
 APP_URI = 'skodaconnect://oidc.login/'
 
 # Used when fetching data
