@@ -38,6 +38,10 @@ Inhalt:
 username:" xxxxx@xxxx.de"
 password: "xxxxxxxxxx"
 #
+
+# Mindestabstand der abfragen
+minold: 30
+
 # Lasse carinfo schreiben (auf diesen Host)
 #optc: --car
 optc: ""
